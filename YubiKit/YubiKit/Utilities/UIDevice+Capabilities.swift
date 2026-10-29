@@ -18,18 +18,57 @@ import Foundation
 import CoreNFC
 #endif
 
+/// Device capabilities that define how a YubiKey can connect.
+public enum YubiKitDeviceCapabilities {
+    /// Whether the device has a Lightning port
+    /// False on macOS and in simulators.
+    public static var supportsMFI: Bool {
+        return isRealiOSDevice && TargetDevice.hasLightningPort
+    }
+
+    /// Whether a Lightning YubiKey can be used via a USB-C to Lightning adapter.
+    public static var supportsMFIOverUSBC: Bool {
+        return isRealiOSDevice && !TargetDevice.hasLightningPort // iOS device with USB port => ok for adapter
+    }
+
+    /// Whether the device can work with NFC YubiKeys.
+    public static var supportsNFC: Bool {
+        #if canImport(CoreNFC)
+            return isRealiOSDevice && NFCTagReaderSession.readingAvailable
+        #else
+            return false
+        #endif
+    }
+
+    /// True only when running on a real iOS device.
+    /// False on macOS (Catalyst or simulated iOS env) and in simulator.
+    private static var isRealiOSDevice: Bool {
+        #if os(iOS) && !targetEnvironment(macCatalyst) && !targetEnvironment(simulator)
+            if ProcessInfo.processInfo.isiOSAppOnMac {
+                return false
+            }
+            return true
+        #else
+            return false
+        #endif
+    }
+}
+
 enum TargetDevice {
-    // Returns `true` when the current device has a Lightning port.
-    // List contains every Lightning-equipped model that can install iOS/iPadOS 16 or newer.
-    static var hasLightningPort: Bool {
+    // Hardware model identifier, such as "iPhone15,2".
+    static var model: String {
         var systemInfo = utsname()
         uname(&systemInfo)
-        let model = withUnsafePointer(to: &systemInfo.machine) {
+        return withUnsafePointer(to: &systemInfo.machine) {
             $0.withMemoryRebound(to: CChar.self, capacity: 1) {
                 String(validatingCString: $0) ?? ""
             }
         }
+    }
 
+    // Returns `true` when the current device has a Lightning port.
+    // List contains every Lightning-equipped model that can install iOS/iPadOS 16 or newer.
+    static var hasLightningPort: Bool {
         switch model {
         case "iPhone10,1", "iPhone10,4",  // iPhone 8
             "iPhone10,2", "iPhone10,5",  // iPhone 8 Plus
