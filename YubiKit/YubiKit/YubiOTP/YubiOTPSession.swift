@@ -40,8 +40,11 @@ extension YubiOTP {
         ///
         /// The result depends on the firmware version and on the transport. A USB SmartCard
         /// session does not support ``YubiOTP/Feature/challengeResponse``.
+        ///
+        /// For a non-Yubico device over the OTP keyboard HID interface, such as an OnlyKey, the
+        /// reported version is not a YubiKey firmware version, so the result ignores it.
         public func supports(_ feature: Feature) async -> Bool {
-            guard feature.isSupported(by: version) else { return false }
+            guard !checksFirmwareVersion || feature.isSupported(by: version) else { return false }
             return feature != .challengeResponse || interface.supportsChallengeResponse
         }
 
@@ -52,8 +55,13 @@ extension YubiOTP {
         public static func makeSession(
             connection: OTPConnection
         ) async throws(YubiOTP.SessionError) -> Session {
+            #if os(macOS) || targetEnvironment(macCatalyst)
+            let isYubico = (connection as? HIDOTPConnection).map { $0.vendorID == HID.yubicoVendorID } ?? true
+            #else
+            let isYubico = true
+            #endif
             let otpInterface = try await OTPKeyboardInterface(connection: connection)
-            if otpInterface.version.major == 3 {
+            if isYubico && otpInterface.version.major == 3 {
                 // The YubiKey NEO can cache a stale programming sequence. An invalid scan map
                 // makes it refresh the cache; the key rejects the scan map itself.
                 logger.debug("Refreshing NEO OTP programming sequence")
@@ -63,7 +71,11 @@ extension YubiOTP {
                 }
                 _ = try await otpInterface.readStatus()
             }
-            return await Session(interface: Interface(interface: otpInterface), transport: "OTP")
+            return await Session(
+                interface: Interface(interface: otpInterface),
+                transport: "OTP",
+                checksFirmwareVersion: isYubico
+            )
         }
 
         /// Creates a new Yubico OTP session over a SmartCard connection.
@@ -165,6 +177,9 @@ extension YubiOTP {
 
         let interface: Interface
 
+        // Whether feature support follows the reported firmware version (only meaningful for YubiKeys).
+        private let checksFirmwareVersion: Bool
+
         package static func makeSession(
             connection: SmartCardConnection,
             scpKeyParams: SCPKeyParams? = nil,
@@ -203,8 +218,9 @@ extension YubiOTP {
 
         // MARK: - Private
 
-        private init(interface: Interface, transport: String) async {
+        private init(interface: Interface, transport: String, checksFirmwareVersion: Bool = true) async {
             self.interface = interface
+            self.checksFirmwareVersion = checksFirmwareVersion
             self.version = interface.version
             self.configState = ConfigState(version: version, flags: await interface.configStateFlags)
             logger.debug(
@@ -212,6 +228,7 @@ extension YubiOTP {
                 metadata: [
                     "transport": .string(transport),
                     "version": .stringConvertible(version),
+                    "checksFirmwareVersion": .stringConvertible(checksFirmwareVersion),
                     "state": .stringConvertible(configState),
                 ]
             )

@@ -44,6 +44,9 @@ public struct HIDOTPConnection: Sendable, OTPConnection {
         await HIDOTPConnectionManager.shared.close(locationID: locationID, id: id, error: error)
     }
 
+    /// The USB vendor ID of the connected device.
+    public var vendorID: Int { device.vendorID }
+
     /// Waits until the connection closes.
     public func waitUntilClosed() async -> Error? {
         try? await didClose.value()
