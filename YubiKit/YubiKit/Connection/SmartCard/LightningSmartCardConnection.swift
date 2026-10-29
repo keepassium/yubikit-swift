@@ -28,6 +28,7 @@ public struct LightningSmartCardConnection: SmartCardConnection, Sendable {
     /// Waits for a YubiKey to be connected via Lightning port and establishes a connection.
     ///
     /// - Throws: ``SmartCardConnectionError.busy`` if there is already an active connection.
+    /// - Throws: ``SmartCardConnectionError.cancelled`` if the calling task is cancelled while waiting.
     public init() async throws(SmartCardConnectionError) {
         accessoryConnectionID = try await LightningConnectionManager.shared.connect()
     }
@@ -138,6 +139,11 @@ private actor LightningConnectionManager {
                 let connectionPromise: Promise<LightningConnectionID> = .init()
                 self.pendingConnectionPromise = connectionPromise
 
+                // The caller may have cancelled before the promise was in place
+                if Task.isCancelled {
+                    await connectionPromise.cancel(with: SmartCardConnectionError.cancelled)
+                }
+
                 // Connect to YubiKeys that are already plugged in
                 await EAAccessoryWrapper.shared.connectToCurrentDevices()
 
@@ -166,11 +172,31 @@ private actor LightningConnectionManager {
             }
         }
 
+        let connectionID: LightningConnectionID
         do {
-            return try await task.value
+            connectionID = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+                Task { await self.cancelPendingConnection() }
+            }
         } catch {
             throw SmartCardConnectionError.setupFailed("Failed to begin SmartCard session", flatten: error)
         }
+
+        // A YubiKey may have connected just as the caller cancelled.
+        // Release it, otherwise every later connection attempt would be busy.
+        if Task.isCancelled {
+            await close(connectionID: connectionID, error: SmartCardConnectionError.cancelled)
+            throw SmartCardConnectionError.cancelled
+        }
+        return connectionID
+    }
+
+    private func cancelPendingConnection() async {
+        guard let promise = pendingConnectionPromise else { return }
+        logger.debug("Cancelling pending Lightning connection")
+        await promise.cancel(with: SmartCardConnectionError.cancelled)
     }
 
     func transmit(
@@ -190,8 +216,12 @@ private actor LightningConnectionManager {
     }
 
     func close(for connection: LightningSmartCardConnection, error: Error?) async {
+        await close(connectionID: connection.accessoryConnectionID, error: error)
+    }
+
+    private func close(connectionID: LightningConnectionID, error: Error?) async {
         guard let state = connectionState,
-            state.connectionID == connection.accessoryConnectionID
+            state.connectionID == connectionID
         else { return }
 
         await EAAccessoryWrapper.shared.stopMonitoring()
