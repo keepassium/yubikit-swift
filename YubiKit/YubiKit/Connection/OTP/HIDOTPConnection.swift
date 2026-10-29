@@ -27,7 +27,8 @@ public struct HIDOTPConnection: Sendable, OTPConnection {
     ///
     /// - Throws: ``OTPConnectionError/noDevicesFound`` if no such YubiKey is present.
     public init() async throws(OTPConnectionError) {
-        guard let first = try await HIDOTPConnection.availableDevices().first else {
+        let devices = try await HIDOTPConnection.availableDevices()
+        guard let first = devices.first(where: { $0.vendorID == HID.yubicoVendorID }) else {
             throw OTPConnectionError.noDevicesFound
         }
         try await self.init(device: first)
@@ -58,11 +59,17 @@ public struct HIDOTPConnection: Sendable, OTPConnection {
         try await HIDOTPConnectionManager.shared.getFeatureReport(from: locationID, id: id)
     }
 
-    package static func availableDevices() async throws(OTPConnectionError) -> [HID.YubiKeyDevice] {
+    /// Returns the connected devices exposing an OTP keyboard interface.
+    ///
+    /// Includes YubiKeys and OnlyKeys. Use ``HID/YubiKeyDevice/vendorID`` to tell them apart.
+    public static func availableDevices() async throws(OTPConnectionError) -> [HID.YubiKeyDevice] {
         await HIDOTPConnectionManager.shared.availableDevices()
     }
 
-    package static func makeConnection(
+    /// Creates a connection to the given device.
+    ///
+    /// - Parameter device: A device returned by ``availableDevices()``.
+    public static func makeConnection(
         device: HID.YubiKeyDevice
     ) async throws(OTPConnectionError) -> HIDOTPConnection {
         try await HIDOTPConnection(device: device)
@@ -84,7 +91,7 @@ public struct HIDOTPConnection: Sendable, OTPConnection {
 
 // MARK: - Private helpers
 
-private let yubicoVendorID = 0x1050
+private let supportedVendorIDs = [HID.yubicoVendorID, HID.onlyKeyVendorID]
 private let keyboardUsagePage = 0x01
 private let keyboardUsage = 0x06
 
@@ -114,13 +121,16 @@ private actor HIDOTPConnectionManager: HasOTPLogger {
     private init() {
         let hidManager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         manager = hidManager
-        IOHIDManagerSetDeviceMatching(
+        // The matching cannot change once the manager is activated, so it covers all supported vendors.
+        IOHIDManagerSetDeviceMatchingMultiple(
             hidManager,
-            [
-                kIOHIDVendorIDKey as String: yubicoVendorID,
-                kIOHIDDeviceUsagePageKey as String: keyboardUsagePage,
-                kIOHIDDeviceUsageKey as String: keyboardUsage,
-            ] as CFDictionary
+            supportedVendorIDs.map { vendorID in
+                [
+                    kIOHIDVendorIDKey as String: vendorID,
+                    kIOHIDDeviceUsagePageKey as String: keyboardUsagePage,
+                    kIOHIDDeviceUsageKey as String: keyboardUsage,
+                ]
+            } as CFArray
         )
         IOHIDManagerSetDispatchQueue(hidManager, eventQueue)
         IOHIDManagerRegisterDeviceRemovalCallback(
@@ -147,9 +157,10 @@ private actor HIDOTPConnectionManager: HasOTPLogger {
     func availableDevices() -> [HID.YubiKeyDevice] {
         let devices = matchingDevices().compactMap { device -> HID.YubiKeyDevice? in
             guard let locationID = IOHIDDeviceGetProperty(device, kIOHIDLocationIDKey as CFString) as? Int,
-                let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String
+                let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String,
+                let vendorID = IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int
             else { return nil }
-            return HID.YubiKeyDevice(hidLocationID: locationID, name: name)
+            return HID.YubiKeyDevice(hidLocationID: locationID, name: name, vendorID: vendorID)
         }
         logger.debug("Enumerated OTP HID devices", metadata: ["count": .stringConvertible(devices.count)])
         return devices

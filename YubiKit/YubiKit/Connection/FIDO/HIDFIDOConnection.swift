@@ -184,7 +184,8 @@ private final class HIDConnectionManager: @unchecked Sendable, HasFIDOLogger {
                     let locationID = IOHIDDeviceGetProperty(dev, kIOHIDLocationIDKey as CFString) as? Int,
                     let name = IOHIDDeviceGetProperty(dev, kIOHIDProductKey as CFString) as? String
                 else { return nil }
-                return HID.YubiKeyDevice(hidLocationID: locationID, name: name)
+                let vendorID = IOHIDDeviceGetProperty(dev, kIOHIDVendorIDKey as CFString) as? Int ?? 0
+                return HID.YubiKeyDevice(hidLocationID: locationID, name: name, vendorID: vendorID)
             }
             self.logger.debug("Enumerated FIDO HID devices", metadata: ["count": .stringConvertible(yubikeys.count)])
             return yubikeys

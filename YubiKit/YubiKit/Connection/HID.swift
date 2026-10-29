@@ -19,24 +19,34 @@ import Foundation
 /// HID device identification namespace.
 ///
 /// Contains types for identifying and working with YubiKey HID devices.
-package enum HID {
+public enum HID {
+    /// The USB vendor ID of Yubico.
+    public static let yubicoVendorID = 0x1050
+
+    /// The USB vendor ID of OnlyKey, which implements the YubiKey OTP HID protocol.
+    public static let onlyKeyVendorID = 0x1d50
+
     /// Represents a YubiKey device accessible via USB HID.
     ///
-    /// Instances are returned by ``HIDFIDOConnection/availableDevices()`` and used to create
-    /// connections with ``HIDFIDOConnection/makeConnection(device:)``.
-    package struct YubiKeyDevice: Sendable, Hashable, CustomStringConvertible {
+    /// Instances are returned by ``HIDOTPConnection/availableDevices()`` and used to create
+    /// connections with ``HIDOTPConnection/makeConnection(device:)``.
+    public struct YubiKeyDevice: Sendable, Hashable, CustomStringConvertible {
         /// The human-readable name of the YubiKey device.
-        package let name: String
+        public let name: String
+
+        /// The USB vendor ID of the device, or 0 if the device does not report one.
+        public let vendorID: Int
 
         /// A textual representation of the YubiKey device.
-        package var description: String { name }
+        public var description: String { name }
 
         // Shared with the OTP HID connection for the same physical device.
         let locationID: Int
 
-        init(hidLocationID: Int, name: String) {
+        init(hidLocationID: Int, name: String, vendorID: Int) {
             self.locationID = hidLocationID
             self.name = name
+            self.vendorID = vendorID
         }
     }
 }
