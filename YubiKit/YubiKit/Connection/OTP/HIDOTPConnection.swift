@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#if os(macOS)
+#if os(macOS) || targetEnvironment(macCatalyst)
 
 import Foundation
 import IOKit
@@ -275,4 +275,4 @@ private actor HIDOTPConnectionManager: HasOTPLogger {
     }
 }
 
-#endif  // os(macOS)
+#endif  // os(macOS) || targetEnvironment(macCatalyst)

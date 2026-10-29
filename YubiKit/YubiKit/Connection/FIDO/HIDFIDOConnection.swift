@@ -19,31 +19,6 @@ import Logging
 import IOKit
 import IOKit.hid
 
-/// HID device identification namespace.
-///
-/// Contains types for identifying and working with YubiKey HID devices.
-package enum HID {
-    /// Represents a YubiKey device accessible via USB HID.
-    ///
-    /// Instances are returned by ``HIDFIDOConnection/availableDevices()`` and used to create
-    /// connections with ``HIDFIDOConnection/makeConnection(device:)``.
-    package struct YubiKeyDevice: Sendable, Hashable, CustomStringConvertible {
-        /// The human-readable name of the YubiKey device.
-        package let name: String
-
-        /// A textual representation of the YubiKey device.
-        package var description: String { name }
-
-        // Shared with the OTP HID connection for the same physical device.
-        let locationID: Int
-
-        init(hidLocationID: Int, name: String) {
-            self.locationID = hidLocationID
-            self.name = name
-        }
-    }
-}
-
 /// A connection to the YubiKey utilizing USB HID for FIDO communication.
 public struct HIDFIDOConnection: Sendable, FIDOConnection {
 
